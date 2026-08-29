@@ -1,0 +1,29 @@
+{
+  "name": "flarecraft",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.8.0",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/studio/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/mcp/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "studio": "pnpm --filter @flarecraft/studio dev",
+    "server": "pnpm --filter @flarecraft/server dev",
+    "verify:emit": "tsx scripts/verify-emit.ts",
+    "mcp": "pnpm --filter @flarecraft/mcp start",
+    "verify:mcp": "tsx scripts/verify-mcp.ts"
+  },
+  "devDependencies": {
+    "@flarecraft/catalog": "workspace:*",
+    "@flarecraft/model": "workspace:*",
+    "@flarecraft/wrangler-io": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/node": "^22.15.3",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

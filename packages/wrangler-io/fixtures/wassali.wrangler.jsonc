@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tunilines",
+  "compatibility_date": "2026-07-01",
+  // ⚠ This project was assets-only until link previews needed server-rendered
+  // OpenGraph tags. worker/index.ts passes everything through to ASSETS except
+  // GET /post/:uuid asking for HTML — see the comment at the top of that file.
+  // The app is still a static SPA talking to Supabase from the browser.
+  "main": "./worker/index.ts",
+  "assets": {
+    "directory": "./dist",
+    // The binding is what makes ASSETS.fetch() available to the Worker. Without
+    // it the Worker would have no way to serve the built files at all.
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  // SUPABASE_URL and SUPABASE_ANON_KEY are NOT declared here on purpose. Both
+  // are public — they already ship inside the client bundle — but this file is
+  // committed, and the project's practice is that no environment-specific value
+  // lives in git (see .env / .env.example).
+  //   local:      .dev.vars (gitignored), read automatically by `wrangler dev`
+  //   production: `wrangler secret put SUPABASE_ANON_KEY`, or Worker vars in
+  //               the Cloudflare dashboard
+  // If they're missing the Worker still serves every page correctly — the RPC
+  // just fails and shared links fall back to a plain preview.
+  "observability": {
+    "enabled": true
+  }
+}

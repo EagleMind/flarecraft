@@ -1,0 +1,19 @@
+{
+  "name": "@flarecraft/wrangler-io",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fs": "./src/fs.ts"
+  },
+  "dependencies": {
+    "@flarecraft/model": "workspace:*",
+    "@flarecraft/catalog": "workspace:*",
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.4.2",
+    "zod": "^4.1.5"
+  }
+}

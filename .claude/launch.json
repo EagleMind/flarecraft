@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flarecraft-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@flarecraft/server",
+        "dev"
+      ],
+      "port": 8798,
+      "autoPort": false
+    },
+    {
+      "name": "flarecraft-studio",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@flarecraft/studio",
+        "dev"
+      ],
+      "port": 5173,
+      "autoPort": false
+    }
+  ]
+}

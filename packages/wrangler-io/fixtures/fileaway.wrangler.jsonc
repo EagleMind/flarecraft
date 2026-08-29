@@ -1,0 +1,62 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "fileaway-upload-worker",
+	"account_id": "893e2e5ceb9c1089e880463f95e53fa3",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-22",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	/**
+	 * Upstream Node backend that owns presign/commit + the link metadata
+	 * API. The Worker forwards requests here for anything it can't short-
+	 * circuit at the edge.
+	 */
+	"vars": {
+		"UPSTREAM_BASE_URL": "http://localhost:3000/api",
+		"PUBLIC_PATH_PREFIX": "/u",
+		"LINK_CACHE_TTL_SECONDS": "30"
+	},
+	/**
+	 * KV cache for public link metadata. Lets the Worker reject obviously
+	 * dead links (inactive / expired / limit reached) at the edge without
+	 * hitting the upstream.
+	 *
+	 * Create the namespace with:
+	 *   npx wrangler kv namespace create LINK_CACHE
+	 * then paste the returned `id` into the `id` field below.
+	 */
+	"kv_namespaces": [
+		{
+			"binding": "LINK_CACHE",
+			"id": "608c81fbd7314d9693789480cfcd7e5e",
+			"remote": true
+		}
+	],
+	// ── Per-environment overrides (uncomment when you have a prod backend) ──
+	"env": {
+		"production": {
+			"vars": {
+				"UPSTREAM_BASE_URL": "https://app.fileaway.io/api",
+				"PUBLIC_PATH_PREFIX": "/u",
+				"LINK_CACHE_TTL_SECONDS": "30",
+				"CLOUDFLARE_API_TOKEN" : "REDACTED_BY_FLARECRAFT_FIXTURE_COPY",
+				"CLOUDFLARE_ACCOUNT_ID" :"893e2e5ceb9c1089e880463f95e53fa3"
+			},
+			"kv_namespaces": [
+				{
+					"binding": "LINK_CACHE",
+					"id": "608c81fbd7314d9693789480cfcd7e5e"
+				}
+			]
+		}
+	}
+}

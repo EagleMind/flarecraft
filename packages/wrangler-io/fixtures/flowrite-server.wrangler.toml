@@ -1,0 +1,30 @@
+# flowrite cloud backend (Cloudflare Worker).
+# Secrets are NOT stored here. Local dev reads server/.dev.vars; production uses
+#   wrangler secret put OPENROUTER_API_KEY
+name = "flowrite-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+account_id = "927f16fe652eb655b9ce403f1075947b"
+
+# Optional: override the model (defaults to anthropic/claude-3.5-haiku).
+[vars]
+OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flowrite-db"
+database_id = "c0bef087-fad4-497e-a093-8a93efa9d055"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "flowrite"
+
+# Real-time collaboration relay: one DocRoom per document.
+[[durable_objects.bindings]]
+name = "DOC_ROOM"
+class_name = "DocRoom"
+
+# Free plan requires SQLite-backed Durable Objects (the KV storage API still works).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DocRoom"]

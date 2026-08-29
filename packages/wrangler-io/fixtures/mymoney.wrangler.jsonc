@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mymoney-api",
+  "main": "src/index.ts",
+  // 2025-03-21 matches a confirmed-working reference for the mongodb driver on
+  // workerd (node:net/node:tls/node:dns landed ~2024-09-23). Not bumped past
+  // that without re-verifying — this date also pins other runtime behavior.
+  "compatibility_date": "2025-03-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DATA_STORE",
+        "class_name": "DataStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      // SQLite-backed is required for new DO namespaces on this account.
+      "new_sqlite_classes": ["ExpensesStore"]
+    },
+    {
+      "tag": "v2",
+      // The class grew past expenses into the whole ledger. Renaming is safe
+      // here because this DO keeps no durable storage of its own — its only
+      // state is an in-memory MongoClient, and all data lives in MongoDB.
+      "renamed_classes": [{ "from": "ExpensesStore", "to": "DataStore" }]
+    }
+  ]
+}

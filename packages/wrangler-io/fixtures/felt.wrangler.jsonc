@@ -1,0 +1,47 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "felt",
+	// The custom worker re-exports OpenNext's generated fetch handler and adds the
+	// cron `scheduled()` handler (AGENTS/MOD-018). It imports `.open-next/worker.js`,
+	// which `opennextjs-cloudflare build` produces before deploy/preview.
+	"main": "./custom-worker.ts",
+	"compatibility_date": "2025-03-25",
+	// nodejs_compat: lets `pg` (node-postgres) run on workerd. global_fetch_strictly_public:
+	// required by OpenNext so internal fetches resolve as public requests.
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".open-next/assets"
+	},
+	"observability": {
+		"enabled": true
+	},
+	// The heartbeat — daily at 14:00 UTC. felt speaks only when a specific person's
+	// day is near: 21-day "start her box" nudges + the morning-of reveal-link reminder.
+	"triggers": {
+		"crons": [
+			"0 14 * * *"
+		]
+	},
+	// R2 — OpenNext's incremental (ISR) cache bucket. (Media clips/gifts are NOT a
+	// binding: they move via presigned S3 URLs using the R2_* secrets in lib/media.ts,
+	// so bytes never pass through the worker.)
+	"r2_buckets": [
+		{
+			"binding": "NEXT_INC_CACHE_R2_BUCKET",
+			"bucket_name": "felt-next-cache"
+		}
+	],
+	// Hyperdrive — pooled Postgres for the worker. Create one over your Neon DB
+	// (`wrangler hyperdrive create felt-db --connection-string=...`) and paste its id.
+	// `localConnectionString` is used by `wrangler dev`/preview only.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "fc900e22debf4cd29617db96bbeb2d54"
+		}
+	]
+}

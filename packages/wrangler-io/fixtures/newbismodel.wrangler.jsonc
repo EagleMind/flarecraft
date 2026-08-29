@@ -1,0 +1,71 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "vols-maghreb",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-08-01",
+	// pg opens a raw TCP socket (via cloudflare:sockets under workerd) and uses
+	// node:crypto for SCRAM auth. Without this flag the connection fails at
+	// handshake with an opaque error.
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	// All times UTC. Order matters: fx must land before prices, because an
+	// observation stored without that day's rate can never be correctly
+	// normalised afterwards (price_eur is frozen at observation time).
+	"triggers": {
+		"crons": [
+			"0 3 * * *", // fx        — one request, everything converts through it
+			"20 3 * * *", // prices    — the core ingest (Workflow)
+			"0 4 * * *", // compute   — refresh materialized views
+			"0 7 1 * *" // calendar  — monthly demand events
+		]
+	},
+	// Pre-rendered by site/build.ts in CI, not by the Worker. Requests that hit
+	// an asset never invoke the Worker and are not billed.
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS"
+	},
+	// Hyperdrive is the connection path to Supabase, and it is here for
+	// compatibility rather than performance. Connecting straight from the
+	// Worker fails: Supavisor presents a Supabase-signed certificate that
+	// workerd's TLS stack drops mid-handshake ("Connection terminated
+	// unexpectedly"), and Supabase's direct host is IPv6-only, which most
+	// networks cannot reach at all. Hyperdrive terminates origin TLS itself
+	// and connects over Cloudflare's network, which has IPv6. Pooling and
+	// query caching are a bonus here, not the reason.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "2403aaf9c62048249137c6e18d6e9541"
+		}
+	],
+	"workflows": [
+		{
+			"name": "price-ingest",
+			"binding": "PRICE_INGEST",
+			"class_name": "PriceIngest"
+		}
+	],
+	// Not read by any code yet. Kept for a future off-provider backup of the
+	// ledger (a weekly pg_dump), which needs nothing else this project uses.
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "vols-media",
+			"remote": true
+		}
+	],
+	"vars": {
+		"SITE_URL": "https://example.com",
+		"USER_AGENT": "vols-maghreb/1.0 (+flight price research; contact: you@example.com)"
+	}
+	// Secrets (set with `wrangler secret put <NAME>`), never in this file:
+	//   DATABASE_URL         Supabase Supavisor transaction pooler, port 6543
+	//   TRAVELPAYOUTS_TOKEN
+	//   TRAVELPAYOUTS_MARKER
+	//   ADMIN_TOKEN          guards POST /_run/<task>; unset disables the route
+}

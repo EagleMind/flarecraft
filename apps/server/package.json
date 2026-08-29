@@ -1,0 +1,24 @@
+{
+  "name": "@flarecraft/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.121.0",
+    "@flarecraft/account": "workspace:*",
+    "@flarecraft/catalog": "workspace:*",
+    "@flarecraft/model": "workspace:*",
+    "@flarecraft/rules": "workspace:*",
+    "@flarecraft/wrangler-io": "workspace:*",
+    "@hono/node-server": "^1.19.6",
+    "hono": "^4.10.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

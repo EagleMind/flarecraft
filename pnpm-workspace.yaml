@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+# vitest ships a native esbuild binary and will not run without its postinstall.
+allowBuilds:
+  esbuild: true

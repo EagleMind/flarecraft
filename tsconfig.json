@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  // Packages only. The apps carry their own configs because studio needs
+  // "jsx" and DOM-flavoured types that would be wrong for the Node packages —
+  // `pnpm typecheck` runs all three.
+  "include": ["packages/*/src/**/*", "scripts/**/*"],
+  "exclude": ["**/node_modules", "**/dist"]
+}

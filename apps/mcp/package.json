@@ -1,0 +1,18 @@
+{
+  "name": "@flarecraft/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "flarecraft-mcp": "./src/index.ts" },
+  "scripts": { "start": "tsx src/index.ts" },
+  "dependencies": {
+    "@flarecraft/model": "workspace:*",
+    "@flarecraft/catalog": "workspace:*",
+    "@flarecraft/wrangler-io": "workspace:*",
+    "@flarecraft/account": "workspace:*",
+    "@flarecraft/rules": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": { "tsx": "^4.23.12" }
+}

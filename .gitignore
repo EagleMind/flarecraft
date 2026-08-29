@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.DS_Store
+
+# Local machine state — never committed. The Cloudflare API token and the
+# Anthropic key live in ~/.flarecraft/config.json, outside this repo entirely.
+.flarecraft-cache/
+.dev.vars

@@ -1,0 +1,80 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+/**
+ * Tailwind 4 generates utilities from these tokens directly: `--color-surface`
+ * becomes `bg-surface`, `--color-ink-dim` becomes `text-ink-dim`, and so on.
+ * That is the whole point of declaring them here rather than reaching for
+ * `style={{ color: "var(--color-ink)" }}` at every call site.
+ */
+@theme {
+  /* Surfaces, darkest to lightest. */
+  --color-sunken: oklch(0.13 0.011 260);
+  --color-surface: oklch(0.17 0.012 260);
+  --color-raised: oklch(0.22 0.014 260);
+  --color-line: oklch(0.30 0.018 260);
+  --color-line-strong: oklch(0.42 0.022 260);
+
+  --color-ink: oklch(0.95 0.005 260);
+  --color-ink-dim: oklch(0.70 0.012 260);
+  --color-ink-faint: oklch(0.55 0.012 260);
+
+  /* Severity. Kept separate from the category hues below: reusing "compute
+     orange" to mean "error" makes both meanings harder to read. */
+  --color-danger: oklch(0.68 0.19 25);
+  --color-warn: oklch(0.79 0.15 85);
+  --color-ok: oklch(0.75 0.15 155);
+  --color-accent: oklch(0.72 0.14 235);
+
+  /* One hue per primitive category, so the canvas is legible at a zoom level
+     where no label can be read. */
+  --color-compute: oklch(0.72 0.16 55);
+  --color-storage: oklch(0.72 0.13 220);
+  --color-messaging: oklch(0.74 0.15 150);
+  --color-ingress: oklch(0.75 0.14 300);
+  --color-service: oklch(0.76 0.13 95);
+  --color-external: oklch(0.60 0.02 260);
+
+  --radius-panel: 0.5rem;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+
+/* Focus rings that are visible without being loud. */
+:where(button, input, select, textarea, a):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.react-flow__edge-text {
+  font-size: 10px;
+}
+
+/* React Flow is MIT licensed but asks that the attribution stay visible unless
+   you are on a Pro plan, so it is left alone here. */
+.react-flow__attribution {
+  background: transparent;
+}
+.react-flow__attribution a {
+  color: var(--color-ink-faint);
+}
+
+.react-flow__controls-button {
+  background: var(--color-raised);
+  border-bottom: 1px solid var(--color-line);
+  fill: var(--color-ink-dim);
+}
+.react-flow__controls-button:hover {
+  background: var(--color-line);
+}
