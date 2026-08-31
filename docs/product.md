@@ -66,6 +66,7 @@ choose a folder ──► canvas ──► configure ──► deploy ──► 
 | | |
 |---|---|
 | **Open** | Pick a folder; every wrangler config under it becomes one graph. Or read the live account |
+| **Organize** | Group a scattered account into systems on the canvas, then save a group as one project folder |
 | **Create** | A new project is scaffolded on disk immediately — configs, typed `Env`, handler stubs, `package.json`, `BLUEPRINT.md` |
 | **Design** | Drag primitives on; illegal connections cannot be drawn |
 | **Configure** | Click any element, edit its real wrangler fields in place |
@@ -100,6 +101,20 @@ immediately. flarecraft regenerates the files that are a projection of the
 topology and creates the rest exactly once — so your handlers are never
 overwritten, and the round trip works: design here, code there, come back and
 reload.
+
+**A scattered account can be made into systems.** Mapping a live account
+faithfully still leaves you looking at sprawl — the map is true and unhelpful,
+because "which of these belong together" is exactly the fact Cloudflare does not
+store. So the canvas lets you assert it: `Organize` suggests groups from the
+connected components of the graph, Shift+drag corrects them, and a group's chip
+saves it as one project folder with every member Worker's source copied in
+beside a generated blueprint, ready to reopen bound.
+
+That last step only ever **copies**. Your originals stay exactly where they are,
+so the worst outcome of getting a grouping wrong is a folder you delete. And a
+group whose Workers cannot all be located on disk **blocks** rather than
+producing a project with an invented stub in it — the whole value of the output
+is that it deploys.
 
 **BLUEPRINT.md is the handoff.** flarecraft designs topology and never writes
 business logic, which leaves a gap somebody has to cross. A wrangler config is a
@@ -159,8 +174,12 @@ Working and verified against real data: the parser (36 tests over eight real
 configs), the lint engine, the primitive chooser, the canvas with direct
 manipulation and undo/redo, inline configuration, project scaffolding, export
 (proven with `wrangler deploy --dry-run`), the deploy planner, the drift diff,
-refactor deploy plans, and the MCP server (driven over a real stdio transport).
-158 tests, four TypeScript projects, all clean.
+refactor deploy plans, the MCP server (driven over a real stdio transport), and
+grouping and consolidation. 180 tests, four TypeScript projects, all clean.
+
+Consolidation is verified against the real folders on this machine: the sources
+come out byte-for-byte identical, the copies exclude `node_modules` and `.git`,
+and every copied Worker passes `wrangler deploy --dry-run`.
 
 The round trip is verified end to end: create a project, hand-edit a config on
 disk, reload — the canvas picked up a hand-added KV binding and recomputed the
@@ -181,6 +200,14 @@ Not yet proven, and each for a specific reason:
 - **Drift.** Both halves are tested independently; no real diff has run.
 - **The prose-to-subgraph path.** Request shape, schema, and the validator are
   tested; no proposal has come back from the API, for want of credentials.
+- **Grouping never round-trips.** Cloudflare has no concept of a group, so it is
+  local metadata: it lives in the saved system and in the consolidated folder,
+  and a fresh account scan alone cannot recover it. Not a gap to be closed —
+  there is nowhere on the platform to put it.
+- **The account/local join is by Worker name.** A Worker deployed under a name
+  that differs from its config's `name` will not match, and shows as having no
+  local folder. The block rule turns that into a prompt to locate it rather than
+  a silent gap, but the join itself stays a heuristic.
 - **Several platform limits** in `packages/catalog/src/limits.ts` are marked
   `confidence: "verify"`. Rules citing them downgrade themselves to warnings
   rather than asserting a threshold the code cannot stand behind.

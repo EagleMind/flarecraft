@@ -15,7 +15,9 @@ renderable and editable, which isn't true on AWS or GCP.
 - **Reverse lookups.** Bindings are stored one-directional. It shows you
   Worker → queue, never queue → its producers and consumers.
 - **A system view.** Every page is scoped to one resource. Nothing says which of
-  your 40 Workers and 12 namespaces belong to the same application.
+  your 40 Workers and 12 namespaces belong to the same application — so
+  flarecraft lets you group them on the canvas and save a group as one project
+  folder, sources copied in beside a generated blueprint.
 - **Design-time.** It only shows what already exists.
 
 ## Running it
@@ -43,14 +45,13 @@ Credentials live in `~/.flarecraft/config.json`, outside this repo:
 ```json
 {
   "cloudflare": { "apiToken": "...", "accountId": "..." },
-  "anthropic": { "apiKey": "..." }
+  "openrouter": { "apiKey": "..." }
 }
 ```
 
-A **read-only** Cloudflare token covers everything except deploy. The Anthropic
-key is only for the prose-to-subgraph path, and can be skipped entirely if
-`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile is
-already set up.
+A **read-only** Cloudflare token covers everything except deploy. The
+OpenRouter key is only for the prose-to-subgraph path, and can be skipped
+entirely if `OPENROUTER_API_KEY` is already set in the environment.
 
 Both are read by the local server and used there. Neither reaches the browser.
 
@@ -66,14 +67,14 @@ Both are read by the local server and used there. Neither reaches the browser.
 
 ```
 packages/
-  model/         SystemModel: nodes, edges, graph ops, mutations, refactors, deploy planning
+  model/         SystemModel: nodes, edges, graph ops, mutations, refactors, grouping, deploy planning
   catalog/       primitives, legal connections, limits, the wrangler field reference
-  wrangler-io/   config ↔ model, project scaffolding, BLUEPRINT.md
+  wrangler-io/   config ↔ model, project scaffolding, project roots, BLUEPRINT.md
   account/       read-only Cloudflare REST client and GraphQL analytics
   rules/         lint rules and the config-vs-deployed diff
 apps/
   studio/        React 19 + Vite + Tailwind 4 + React Flow canvas
-  server/        local Hono server: credentials, filesystem, folder browsing, deploy
+  server/        local Hono server: credentials, filesystem, folder browsing, deploy, consolidation
   mcp/           read-only MCP tools for a coding agent
 ```
 
@@ -94,10 +95,11 @@ Five read-only tools: `scan_repos`, `who_binds` (the reverse lookup),
 ## Checks
 
 ```bash
-pnpm test          # 158 unit tests
+pnpm test          # 180 unit tests
 pnpm typecheck     # all four TypeScript projects
 pnpm verify:emit   # emit a repo, run `wrangler deploy --dry-run` on each Worker
 pnpm verify:mcp    # drive the MCP server over a real stdio transport
+pnpm verify:organize <scanRoot> <destination>   # consolidate a real group
 ```
 
 `verify:emit` is the one that matters most. Round-trip tests prove the model
@@ -109,7 +111,9 @@ bugs that every unit test missed.
 Working and verified against real data: parser, lint engine, primitive chooser,
 canvas with direct manipulation and undo/redo, inline configuration, project
 scaffolding and the design → code → reload round trip, export, deploy planning,
-drift, refactors, and the MCP server.
+drift, refactors, the MCP server, and grouping a scattered account into project
+folders — verified with sources coming out byte-for-byte untouched and every
+copied Worker passing `wrangler deploy --dry-run`.
 
 Not yet proven: deploy execution against a live account, the account scan's
 endpoint paths, live traffic data, drift, and the prose-to-subgraph path — each

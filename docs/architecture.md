@@ -17,13 +17,13 @@ canvas edits ┘     (graph)          └─→ deploy plan → wrangler
 
 | Package | Responsibility |
 |---|---|
-| `packages/model` | `SystemModel`: nodes, edges, graph ops, cycle detection, mutations, refactors, deployment planning |
+| `packages/model` | `SystemModel`: nodes, edges, graph ops, cycle detection, mutations, refactors, grouping, deployment planning |
 | `packages/catalog` | Primitive metadata, legal connections, platform limits, runtime types, the wrangler field reference, the primitive chooser |
-| `packages/wrangler-io` | Config ↔ model, project scaffolding, blueprint generation. `/fs` subpath for disk access |
+| `packages/wrangler-io` | Config ↔ model, project scaffolding, blueprint generation, project-root resolution. `/fs` subpath for disk access |
 | `packages/account` | Read-only Cloudflare REST client and GraphQL analytics; account → model |
 | `packages/rules` | Lint rules and the config-vs-deployed diff |
 | `apps/studio` | React 19 + Vite + Tailwind 4 + React Flow canvas |
-| `apps/server` | Local Hono server: credential custody, filesystem, folder browsing, deploy execution |
+| `apps/server` | Local Hono server: credential custody, filesystem, folder browsing, deploy execution, consolidation |
 | `apps/mcp` | Read-only MCP tools for a coding agent |
 
 Internal packages are consumed straight from source (`"main": "./src/index.ts"`).
@@ -41,11 +41,14 @@ packages during development.
 | `wrangler-io/emit.ts` | Model → annotated JSONC |
 | `wrangler-io/scaffold.ts` | The full project, with per-file ownership |
 | `wrangler-io/blueprint.ts` | `BLUEPRINT.md` |
+| `model/grouping.ts` | Group suggestion and editing; the subsystem a group projects to |
 | `model/deployment.ts` | Ordered deploy plan |
 | `model/refactors.ts` | Named refactors, each with a deploy plan |
 | `rules/drift.ts` | Config versus deployed |
 | `server/browse.ts` | Directory listing for the folder picker |
 | `server/deploy.ts` | Plan execution |
+| `server/organize.ts` | Consolidating a group into one folder: preflight, copy, install |
+| `wrangler-io/fs.ts` | Directory scanning and `projectRootFor` |
 
 ---
 
@@ -190,6 +193,75 @@ So `PLACEHOLDER_ID` lives in the catalog and both the parser and `resourceKey`
 treat it as absent. Found by reading a deploy plan that was missing a D1
 database, not by a test.
 
+### Groups are painted, not modelled as parent nodes
+
+React Flow has first-class group nodes, and they are the wrong tool here.
+Adopting them means every member gets a `parentId` and a position **relative to
+its parent**, which changes what the ELK layout produces and what every existing
+position means. That is a large, risky change to code that already works, for a
+visual result a backdrop delivers anyway.
+
+So `Groups.tsx` renders through `ViewportPortal` instead: same coordinate space,
+painted behind the nodes, and the node model never learns it exists. The feature
+stays additive — nothing about layout, dragging, or selection had to change to
+accommodate it.
+
+Grouping itself is two additive fields, `SystemModel.groups` and
+`Node.groupId`. Cloudflare stores nothing equivalent, so this is local metadata
+by necessity rather than by design: it survives in the saved system and in the
+consolidated folder, and a re-scan alone cannot reconstruct it.
+
+`suggestGroups` partitions into **connected components**, which is right because
+a scattered account genuinely does fall into independent clusters. The subtlety
+is that singleton platform services — AI, Browser Rendering, Images — must be
+excluded as connectors. Two unrelated Workers that both bind `env.AI` are not
+one system, and without the exclusion the whole account collapses into a single
+group through them.
+
+### Consolidation copies and never moves
+
+`server/organize.ts` copies each member's project folder into a new directory.
+It never moves, never deletes, and never merges into an existing folder — a
+non-empty destination is refused rather than written into, because burying
+somebody's existing work is the one irreversible thing this could do.
+
+The property worth protecting is not that the copy succeeds; it is that the
+**sources come out untouched**. Everything else here is recoverable by deleting
+a folder. That is also why partial failure is safe by construction: with no
+delete step anywhere, an interrupted copy leaves every original exactly as it
+was.
+
+`fs.cp`'s `filter` implements the exclusions: `node_modules`, `.wrangler`,
+build output, `coverage`, and `.git`. Excluding `.git` is deliberate — the
+originals keep the history, and nested repositories inside one project folder
+produce confusing git behaviour.
+
+Blocking is the other half. A Worker with no local folder stops the run and is
+named, rather than getting a generated stub. The output's entire value is that
+it deploys, and a plausible-looking folder that does not is worse than a refusal
+you can act on.
+
+### A folder of projects, not a monorepo
+
+Consolidation could plausibly emit a workspace. The real corpus rules it out:
+two of the projects on this machine already carry their own
+`pnpm-workspace.yaml`, and nesting those breaks pnpm outright. Package managers
+are mixed across the corpus, and one project has both lockfiles.
+
+So each member stays self-contained with its own lockfile and its own install,
+and the root adds only `BLUEPRINT.md` and a `README.md` recording provenance.
+Install runs per folder using the manager detected from that folder's lockfile,
+last, and non-fatally — the files are already on disk, so a network failure
+must not cost you the copy.
+
+### Project roots are found by marker, not by depth
+
+A wrangler config's directory is not reliably the project. `projectRootFor`
+walks up to the nearest ancestor holding `.git` or `package.json`, stopping at
+the scan root so it can never escape upward into unrelated territory. Verified
+against the real corpus, including a project with a `package.json` and no `.git`
+and one whose config sits a level down in `worker/`.
+
 ### The folder picker is served, not native
 
 `showDirectoryPicker()` returns a `FileSystemDirectoryHandle` whose `.name` is
@@ -271,15 +343,14 @@ collision with a locally running Worker is close to guaranteed.
 
 ### Credentials are resolved, not demanded
 
-The Anthropic client is constructed bare when no key is configured, so the SDK's
-own chain applies — `ANTHROPIC_API_KEY`, then `ANTHROPIC_AUTH_TOKEN`, then an
-`ant auth login` profile. Requiring the key to be copied into flarecraft's
-config would break a perfectly good profile.
+The OpenRouter request is built bare when no key is configured explicitly, so
+`OPENROUTER_API_KEY` is read straight from the environment. Requiring the key
+to be copied into flarecraft's own config would break a perfectly good
+environment variable that was already set for other tools.
 
-There is a pre-flight check for whether *any* source exists, which duplicates a
-little of that order. It earns its place: when nothing is configured the SDK
-throws a plain `Error`, not one of its typed classes, so there is nothing to
-catch on but message text. The check decides only whether to bother asking.
+There is a pre-flight check for whether *any* source exists, so a missing key
+fails fast with an actionable message rather than a raw 401 from the fetch
+call.
 
 ---
 
@@ -298,6 +369,10 @@ It is a personal tool on localhost, which lowers the stakes but not the standard
   destination and verify every emitted path resolves inside it before writing.
   Export additionally refuses a non-empty directory unless forced.
 - **The folder browser lists directories only.** It never reads file contents.
+- **Consolidation never destroys.** It copies, refuses a non-empty destination,
+  and has no delete path at all. Sources are checked readable and the
+  destination writable before anything is written; `EACCES`/`EPERM` are reported
+  against the path that raised them rather than as a generic failure.
 - **Saved system names are restricted, not escaped.** They become filenames, and
   no legitimate design name needs a slash.
 
@@ -305,7 +380,7 @@ It is a personal tool on localhost, which lowers the stakes but not the standard
 
 ## Testing
 
-158 tests across nine files. The parser corpus is eight real wrangler configs
+180 tests across twelve files. The parser corpus is eight real wrangler configs
 vendored into `packages/wrangler-io/fixtures/`, chosen because each does
 something a hand-written fixture would not have thought of: comments inside
 arrays, a config with no `name`, a Durable Object class renamed across two
@@ -322,6 +397,12 @@ Three scripts go beyond unit tests, and all three have earned it:
 - **`pnpm verify:mcp`** drives the MCP server over a real stdio transport. It
   surfaced two different Hyperdrive resources rendering under the same fallback
   name.
+- **`pnpm verify:organize <scanRoot> <destination>`** consolidates a real group
+  drawn from the folders on this machine, then asserts the part that matters:
+  every source folder is fingerprinted before and after and any difference
+  fails the run. It also checks the copies exclude `node_modules` and `.git`,
+  that the blueprint and README landed, and that each copied Worker passes
+  `wrangler deploy --dry-run`.
 - **`pnpm tsx scripts/demo-system.ts <folder>`** builds a small realistic system
   and scaffolds it, which is how the whole round trip gets exercised in one
   command.

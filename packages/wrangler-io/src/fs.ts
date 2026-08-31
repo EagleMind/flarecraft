@@ -1,5 +1,5 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { access, readFile, readdir, stat } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { mergeSystems, emptySystem, type SystemModel } from "@flarecraft/model";
 import { parseWranglerConfig, type ParseResult, type ParseWarning } from "./parse.js";
 
@@ -107,4 +107,55 @@ export async function scanDirectory(
   }
 
   return { system, warnings, configPaths };
+}
+
+/**
+ * Markers that say "this directory is the root of a project".
+ *
+ * `package.json` rather than `.git` alone: of the seven real projects this was
+ * checked against, every one has a `package.json` at its root but one has no
+ * `.git` at all, so requiring a repository would have silently mislocated it.
+ */
+const ROOT_MARKERS = [".git", "package.json"];
+
+/**
+ * The project folder a wrangler config belongs to.
+ *
+ * A config is rarely at the root — `mymoney/worker/wrangler.jsonc` and
+ * `fileaway/fileaway-upload-worker/wrangler.jsonc` both sit a level down — so
+ * copying "the folder with the config in it" would take a fragment of the
+ * project and leave its package.json behind.
+ *
+ * Walks up looking for a root marker, never climbing past `scanRoot`. Returns
+ * undefined when nothing above the config looks like a project root, which the
+ * caller should treat as "ask the user" rather than guessing.
+ */
+export async function projectRootFor(
+  configPath: string,
+  scanRoot: string,
+): Promise<string | undefined> {
+  const boundary = resolve(scanRoot);
+  let current = dirname(resolve(configPath));
+
+  for (;;) {
+    if (await hasRootMarker(current)) return current;
+
+    const parent = dirname(current);
+    // Stop at the scan root, at the filesystem root, or if we somehow escaped.
+    if (current === boundary || parent === current) return undefined;
+    if (!parent.startsWith(boundary)) return undefined;
+    current = parent;
+  }
+}
+
+async function hasRootMarker(directory: string): Promise<boolean> {
+  for (const marker of ROOT_MARKERS) {
+    try {
+      await access(join(directory, marker));
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
 }

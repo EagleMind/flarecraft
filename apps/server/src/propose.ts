@@ -1,8 +1,3 @@
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { canConnect, PRIMITIVES, RELATIONS } from "@flarecraft/catalog";
 
@@ -19,6 +14,10 @@ import { canConnect, PRIMITIVES, RELATIONS } from "@flarecraft/catalog";
  *
  * The result is a *proposal*, deliberately: it lands on the canvas as something
  * to accept or reject, not as an edit that already happened.
+ *
+ * Runs through OpenRouter rather than talking to a single model provider
+ * directly, so the key, the model, and the failure modes are all one
+ * OpenAI-compatible surface instead of a provider-specific SDK.
  */
 
 const ProposedNodeSchema = z.object({
@@ -48,14 +47,16 @@ export interface ProposalResult extends Proposal {
   dropped: { from: string; to: string; because: string }[];
 }
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_MODEL = "openai/gpt-4o";
+
 export class NoCredentialsError extends Error {
   constructor(detail?: string) {
     super(
       [
-        "No Anthropic credentials.",
-        "The SDK looks for ANTHROPIC_API_KEY, then ANTHROPIC_AUTH_TOKEN, then an",
-        '`ant auth login` profile — set any one of those, or add {"anthropic":',
-        '{"apiKey":"..."}} to ~/.flarecraft/config.json.',
+        "No OpenRouter credentials.",
+        'Set OPENROUTER_API_KEY, or add {"openrouter": {"apiKey":',
+        '"..."}} to ~/.flarecraft/config.json.',
         detail ? `(${detail})` : "",
       ]
         .filter(Boolean)
@@ -63,28 +64,6 @@ export class NoCredentialsError extends Error {
     );
     this.name = "NoCredentialsError";
   }
-}
-
-/**
- * Whether any credential source the SDK consults exists.
- *
- * This duplicates a little of the SDK's resolution order, which is not ideal —
- * but the alternative is worse. When nothing is configured the SDK throws a
- * plain `Error`, not one of its typed classes, so there is nothing to catch on
- * except the message text. Checking the sources ourselves fails fast with an
- * actionable message and leaves the SDK as the authority whenever any source
- * does exist: this only ever decides whether to bother asking.
- *
- * Order mirrors the documented chain: explicit key, ANTHROPIC_API_KEY,
- * ANTHROPIC_AUTH_TOKEN, then an `ant auth login` profile on disk.
- */
-function hasCredentialSource(explicitKey?: string): boolean {
-  return Boolean(
-    explicitKey ||
-      process.env["ANTHROPIC_API_KEY"] ||
-      process.env["ANTHROPIC_AUTH_TOKEN"] ||
-      existsSync(join(homedir(), ".config", "anthropic")),
-  );
 }
 
 /**
@@ -134,33 +113,84 @@ Rules:
 - In "rejected", name the primitive a reader would reasonably have expected you
   to choose, and say what ruled it out. This is the most useful part of the
   answer — be specific about the constraint, not generic about the primitive.
-- "why" on each node states what that node is doing in THIS system.`;
+- "why" on each node states what that node is doing in THIS system.
+- Respond with JSON only, matching the given schema exactly.`;
+
+const PROPOSAL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    nodes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string" },
+          name: { type: "string" },
+          why: { type: "string" },
+        },
+        required: ["kind", "name", "why"],
+        additionalProperties: false,
+      },
+    },
+    edges: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          from: { type: "string" },
+          to: { type: "string" },
+          bindingName: { type: "string" },
+        },
+        required: ["from", "to", "bindingName"],
+        additionalProperties: false,
+      },
+    },
+    rejected: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string" },
+          because: { type: "string" },
+        },
+        required: ["kind", "because"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["summary", "nodes", "edges", "rejected"],
+  additionalProperties: false,
+} as const;
 
 export interface ProposeOptions {
   /**
-   * Supplied only when a key is configured explicitly. Left undefined, the SDK
-   * resolves credentials itself: ANTHROPIC_API_KEY, then ANTHROPIC_AUTH_TOKEN,
-   * then an `ant auth login` profile. An unset env var does not mean there are
-   * no credentials, and forcing the key to be copied into flarecraft's own
-   * config would break a perfectly good profile.
+   * Supplied only when a key is configured explicitly. Left undefined, this
+   * falls back to OPENROUTER_API_KEY. An unset env var does not mean there is
+   * no key configured elsewhere.
    */
   apiKey?: string;
+  /** Overrides the default model, e.g. via OPENROUTER_MODEL. */
+  model?: string;
   prompt: string;
   /** Names already on the canvas, so a proposal can extend rather than collide. */
   existingNodes?: { kind: string; name: string }[];
 }
 
+function hasCredentialSource(explicitKey?: string): boolean {
+  return Boolean(explicitKey || process.env["OPENROUTER_API_KEY"]);
+}
+
+interface OpenRouterResponse {
+  choices?: { message?: { content?: string; refusal?: string } }[];
+  error?: { message?: string };
+}
+
 export async function proposeTopology(
   options: ProposeOptions,
 ): Promise<ProposalResult> {
-  if (!hasCredentialSource(options.apiKey)) throw new NoCredentialsError();
-
-  // No explicit key means the SDK resolves credentials itself — an unset
-  // ANTHROPIC_API_KEY does not mean there are none, and forcing the key to be
-  // copied into flarecraft's config would break a working `ant` profile.
-  const client = options.apiKey
-    ? new Anthropic({ apiKey: options.apiKey })
-    : new Anthropic();
+  const apiKey = options.apiKey || process.env["OPENROUTER_API_KEY"];
+  if (!hasCredentialSource(apiKey)) throw new NoCredentialsError();
 
   const context = options.existingNodes?.length
     ? `\n\nThe canvas already contains these nodes; extend them rather than duplicating:\n${options.existingNodes
@@ -168,51 +198,74 @@ export async function proposeTopology(
         .join("\n")}`
     : "";
 
-  let response;
+  let httpResponse: Response;
   try {
-    response = await client.messages.parse({
-      model: "claude-opus-5",
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      output_config: {
-        effort: "high",
-        format: zodOutputFormat(ProposalSchema),
+    httpResponse = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/flarecraft",
+        "X-Title": "flarecraft",
       },
-      // The grounding block is identical on every request, so caching it keeps
-      // repeated proposals cheap.
-      system: [
-        { type: "text", text: SYSTEM },
-        { type: "text", text: GROUNDING, cache_control: { type: "ephemeral" } },
-      ],
-      messages: [{ role: "user", content: `${options.prompt}${context}` }],
+      body: JSON.stringify({
+        model: options.model || process.env["OPENROUTER_MODEL"] || DEFAULT_MODEL,
+        messages: [
+          { role: "system", content: `${SYSTEM}\n\n${GROUNDING}` },
+          { role: "user", content: `${options.prompt}${context}` },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "proposal",
+            strict: true,
+            schema: PROPOSAL_JSON_SCHEMA,
+          },
+        },
+      }),
     });
-  } catch (error) {
-    // Typed exception classes rather than string matching, most specific first.
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new NoCredentialsError();
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new Error("Rate limited by the Anthropic API. Try again shortly.");
-    }
-    if (error instanceof Anthropic.APIConnectionError) {
-      throw new Error("Could not reach the Anthropic API. Check the network.");
-    }
-    if (error instanceof Anthropic.APIError) {
-      throw new Error(`Anthropic API error ${error.status}: ${error.message}`);
-    }
-    throw error;
+  } catch {
+    throw new Error("Could not reach the OpenRouter API. Check the network.");
   }
 
-  if (response.stop_reason === "refusal") {
+  if (httpResponse.status === 401 || httpResponse.status === 403) {
+    throw new NoCredentialsError();
+  }
+  if (httpResponse.status === 429) {
+    throw new Error("Rate limited by the OpenRouter API. Try again shortly.");
+  }
+
+  const body = (await httpResponse.json()) as OpenRouterResponse;
+
+  if (!httpResponse.ok) {
+    throw new Error(
+      `OpenRouter API error ${httpResponse.status}: ${body.error?.message ?? httpResponse.statusText}`,
+    );
+  }
+
+  const message = body.choices?.[0]?.message;
+  if (message?.refusal) {
     throw new Error("The model declined to answer that request.");
   }
 
-  const proposal = response.parsed_output;
-  if (!proposal) {
+  const content = message?.content;
+  if (!content) {
     throw new Error("The model did not return a usable topology proposal.");
   }
 
-  return validate(proposal);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("The model's response was not valid JSON.");
+  }
+
+  const result = ProposalSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("The model did not return a usable topology proposal.");
+  }
+
+  return validate(result.data);
 }
 
 /**

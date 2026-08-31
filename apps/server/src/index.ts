@@ -10,6 +10,7 @@ import { exportRepo, ExportError, DEFAULT_EXPORT_ROOT } from "./export.js";
 import { deploySystem } from "./deploy.js";
 import { scaffoldToFolder, defaultProjectFolder } from "./scaffold.js";
 import { browseDirectory } from "./browse.js";
+import { planOrganize, runOrganize } from "./organize.js";
 import { planDeployment, type SystemModel } from "@flarecraft/model";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -123,11 +124,11 @@ app.post("/api/design/propose", async (c) => {
   }
 
   try {
-    // No pre-flight credential check: an unset ANTHROPIC_API_KEY does not mean
-    // there are none, and refusing before trying would ignore an `ant auth
-    // login` profile the SDK would have resolved perfectly well.
+    // No pre-flight credential check: an unset OPENROUTER_API_KEY does not
+    // mean there is none configured in ~/.flarecraft/config.json.
     const proposal = await proposeTopology({
-      ...(config.anthropic?.apiKey ? { apiKey: config.anthropic.apiKey } : {}),
+      ...(config.openrouter?.apiKey ? { apiKey: config.openrouter.apiKey } : {}),
+      ...(config.openrouter?.model ? { model: config.openrouter.model } : {}),
       prompt: body.prompt,
       ...(body.existingNodes ? { existingNodes: body.existingNodes } : {}),
     });
@@ -267,6 +268,40 @@ app.get("/api/browse", async (c) => {
     return c.json(await browseDirectory(c.req.query("path")));
   } catch (error) {
     return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
+/**
+ * Consolidate a group's scattered projects into one folder.
+ *
+ * Split into plan and run for the same reason deploy is: this touches real
+ * folders, and the preview is where you find out it was going to copy the wrong
+ * thing. Nothing is ever moved or deleted, so a failed run costs only a
+ * half-filled destination.
+ */
+app.post("/api/organize/plan", async (c) => {
+  try {
+    const body = (await c.req.json()) as Parameters<typeof planOrganize>[0];
+    if (!body?.system || !body?.groupId) {
+      return c.json({ error: "No system or group." }, 400);
+    }
+    return c.json(await planOrganize(body));
+  } catch (error) {
+    if (error instanceof ExportError) return c.json({ error: error.message }, 400);
+    return c.json({ error: (error as Error).message }, 500);
+  }
+});
+
+app.post("/api/organize/run", async (c) => {
+  try {
+    const body = (await c.req.json()) as Parameters<typeof runOrganize>[0];
+    if (!body?.system || !body?.groupId) {
+      return c.json({ error: "No system or group." }, 400);
+    }
+    return c.json(await runOrganize(body));
+  } catch (error) {
+    if (error instanceof ExportError) return c.json({ error: error.message }, 400);
+    return c.json({ error: (error as Error).message }, 500);
   }
 });
 

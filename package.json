@@ -13,6 +13,7 @@
     "studio": "pnpm --filter @flarecraft/studio dev",
     "server": "pnpm --filter @flarecraft/server dev",
     "verify:emit": "tsx scripts/verify-emit.ts",
+    "verify:organize": "tsx scripts/verify-organize.ts",
     "mcp": "pnpm --filter @flarecraft/mcp start",
     "verify:mcp": "tsx scripts/verify-mcp.ts"
   },

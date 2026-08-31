@@ -4,14 +4,19 @@ import {
   applyProposal,
   connect,
   emptySystem,
+  groupSelection,
+  mergeSystems,
   patchConsumer,
   patchEdgeConfig,
   patchNodeConfig,
   patchWorker,
   removeEdge,
   removeNode,
+  removeFromGroup,
   renameBinding,
+  renameGroup,
   renameNode,
+  suggestGroups as suggestGroupsFor,
   type Node,
   type NodeKind,
   type ProposedTopology,
@@ -75,6 +80,11 @@ interface StudioState {
 
   place: (kind: NodeKind, position: { x: number; y: number }) => void;
   applyTopology: (proposal: ProposedTopology) => void;
+  /**
+   * Prose straight onto the canvas: ask for a topology and apply it in one
+   * step, for the "describe it" path at project creation.
+   */
+  designFromPrompt: (prompt: string) => Promise<void>;
   link: (fromId: string, toId: string) => void;
   unlink: (edgeId: string) => void;
   drop: (nodeId: string) => void;
@@ -93,6 +103,21 @@ interface StudioState {
   exportRepo: (outDir: string) => Promise<void>;
   checkDrift: (root: string) => Promise<void>;
   reset: () => void;
+
+  /**
+   * The folder the local scan came from. Consolidation needs it to bound the
+   * walk from a config up to its project root.
+   */
+  scanRoot: string | undefined;
+  /** Organising a scattered account into systems, from the canvas. */
+  organize: () => void;
+  groupSelected: (nodeIds: string[]) => void;
+  ungroupNodes: (nodeIds: string[]) => void;
+  renameGroupTo: (groupId: string, name: string) => void;
+  /** Merge a local scan into the current system, filling in configPaths. */
+  findLocalSources: (root: string) => Promise<number>;
+  /** Point one Worker at its folder by scanning there for a matching config. */
+  locateWorker: (nodeId: string, folder: string) => Promise<boolean>;
   /** Live traffic per Worker name, empty until a refresh is asked for. */
   activity: Record<string, { requests: number; errors: number }>;
   activityWarnings: string[];
@@ -145,9 +170,11 @@ export const useStudio = create<StudioState>((set, get) => {
     projectFolder: undefined,
     dirty: false,
     activityWarnings: [],
+    scanRoot: undefined,
 
     loadRepo: async (root) => {
       await load(set, `/api/system/repo?root=${encodeURIComponent(root)}`, "repo");
+      set({ scanRoot: root });
     },
 
     loadAccount: async () => {
@@ -194,6 +221,43 @@ export const useStudio = create<StudioState>((set, get) => {
           ? `Applied ${result.added.length} node(s). Skipped: ${result.rejected.join(" ")}`
           : `Applied ${result.added.length} node(s).`,
       });
+    },
+
+    designFromPrompt: async (prompt) => {
+      const system = get().system;
+      if (!system || !prompt.trim()) return;
+      set({ loading: true, error: undefined });
+      try {
+        const response = await fetch("/api/design/propose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            existingNodes: system.nodes.map((n) => ({ kind: n.kind, name: n.name })),
+          }),
+        });
+        const body = (await response.json()) as {
+          nodes?: { kind: string; name: string }[];
+          edges?: { from: string; to: string; bindingName?: string }[];
+          error?: string;
+          detail?: string;
+        };
+        if (!response.ok || body.error) {
+          set({ loading: false, error: [body.error, body.detail].filter(Boolean).join(" ") });
+          return;
+        }
+        set({ loading: false });
+        get().applyTopology({
+          nodes: body.nodes ?? [],
+          edges: (body.edges ?? []).map((e) => ({
+            from: e.from,
+            to: e.to,
+            ...(e.bindingName ? { bindingName: e.bindingName } : {}),
+          })),
+        });
+      } catch (error) {
+        set({ loading: false, error: (error as Error).message });
+      }
     },
 
     link: (fromId, toId) => {
@@ -415,6 +479,109 @@ export const useStudio = create<StudioState>((set, get) => {
       }
     },
 
+    /**
+     * Suggest groups from the graph's connected components.
+     *
+     * Pressing Organize should produce something to react to, not an empty
+     * mode, so this runs immediately and draws what it found.
+     */
+    organize: () => {
+      const system = get().system;
+      if (!system) return;
+      const next = suggestGroupsFor(system);
+      commit(next);
+      set({
+        notice: `Found ${next.groups?.length ?? 0} system(s). Shift+drag to regroup.`,
+      });
+    },
+
+    groupSelected: (nodeIds) => {
+      const system = get().system;
+      if (!system || nodeIds.length === 0) return;
+      commit(groupSelection(system, nodeIds).system);
+    },
+
+    ungroupNodes: (nodeIds) =>
+      edit((system) => removeFromGroup(system, nodeIds)),
+
+    renameGroupTo: (groupId, name) =>
+      edit((system) => renameGroup(system, groupId, name)),
+
+    /**
+     * Fill in local source paths for an account scan.
+     *
+     * An account knows Worker names, never folders. Merging a repo scan over
+     * the top attaches each `configPath` by node id, which is what makes
+     * consolidation possible at all.
+     */
+    findLocalSources: async (root) => {
+      const system = get().system;
+      if (!system) return 0;
+      set({ loading: true, error: undefined });
+      try {
+        const response = await fetch(
+          `/api/system/repo?root=${encodeURIComponent(root)}`,
+        );
+        const body = (await response.json()) as SystemResponse;
+        if (!response.ok || body.error) {
+          set({ loading: false, error: body.error ?? "Could not read that folder." });
+          return 0;
+        }
+
+        const before = system.nodes.filter((n) => n.configPath).length;
+        // Merge onto the current system rather than replacing it: the account
+        // is the truth about what exists, the folder is the truth about where.
+        const merged = mergeSystems(system, body.system);
+        const after = merged.nodes.filter((n) => n.configPath).length;
+
+        commit({ ...merged, nodes: merged.nodes.map((n) => ({ ...n })) });
+        set({ loading: false, scanRoot: root });
+        return after - before;
+      } catch (error) {
+        set({ loading: false, error: (error as Error).message });
+        return 0;
+      }
+    },
+
+    locateWorker: async (nodeId, folder) => {
+      const system = get().system;
+      const node = system?.nodes.find((n) => n.id === nodeId);
+      if (!system || !node) return false;
+
+      try {
+        const response = await fetch(
+          `/api/system/repo?root=${encodeURIComponent(folder)}`,
+        );
+        const body = (await response.json()) as SystemResponse;
+        if (!response.ok || body.error) {
+          set({ error: body.error ?? "Could not read that folder." });
+          return false;
+        }
+
+        const match = body.system.nodes.find(
+          (n) => n.kind === "worker" && n.name === node.name,
+        );
+        if (!match?.configPath) {
+          set({
+            error: `No wrangler config naming "${node.name}" under ${folder}.`,
+          });
+          return false;
+        }
+
+        commit({
+          ...system,
+          nodes: system.nodes.map((n) =>
+            n.id === nodeId ? { ...n, configPath: match.configPath } : n,
+          ),
+        });
+        set({ scanRoot: get().scanRoot ?? folder, error: undefined });
+        return true;
+      } catch (error) {
+        set({ error: (error as Error).message });
+        return false;
+      }
+    },
+
     /** Back to the start screen, discarding the loaded system. */
     reset: () =>
       set({
@@ -431,6 +598,7 @@ export const useStudio = create<StudioState>((set, get) => {
         notice: undefined,
         projectFolder: undefined,
         dirty: false,
+        scanRoot: undefined,
       }),
 
     checkDrift: async (root) => {

@@ -184,7 +184,51 @@ function Header() {
       {activityWarnings.length > 0 && (
         <p className="mt-2 text-[10px] leading-relaxed text-warn">{activityWarnings[0]}</p>
       )}
+
+      {/* Only while the canvas is still blank: once something is on it, prose
+          goes back to being additive, in the Add tab's "Describe it" path. */}
+      {system && system.nodes.length === 0 && <DescribePrompt />}
     </header>
+  );
+}
+
+/**
+ * Describe the whole system before placing a single element.
+ *
+ * The first thing a new, empty canvas needs is not a palette to browse — it is
+ * an architecture. This asks for one in prose and applies the result directly,
+ * the same validated path as the Add tab's assistant.
+ */
+function DescribePrompt() {
+  const loading = useStudio((s) => s.loading);
+  const designFromPrompt = useStudio((s) => s.designFromPrompt);
+  const [prompt, setPrompt] = useState("");
+
+  const submit = async () => {
+    if (!prompt.trim()) return;
+    await designFromPrompt(prompt);
+    setPrompt("");
+  };
+
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+        Describe the architecture
+      </p>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={3}
+        spellCheck={false}
+        placeholder="A webhook receiver that verifies signatures, queues each event, and writes results somewhere I can query by customer…"
+        className="w-full rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+      />
+      <div className="mt-2">
+        <Button full tone="primary" onClick={() => void submit()} disabled={loading || !prompt.trim()}>
+          {loading ? "designing…" : "Design it"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

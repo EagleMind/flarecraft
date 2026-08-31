@@ -7,9 +7,9 @@ import { join } from "node:path";
  *
  * `~/.flarecraft/config.json`:
  * {
- *   "cloudflare": { "apiToken": "...", "accountId": "..." },
- *   "anthropic":  { "apiKey": "..." },
- *   "scanRoots":  ["C:/Users/you/Documents"]
+ *   "cloudflare":  { "apiToken": "...", "accountId": "..." },
+ *   "openrouter":  { "apiKey": "...", "model": "..." },
+ *   "scanRoots":   ["C:/Users/you/Documents"]
  * }
  *
  * The token is read here and used here. It is never written into the repo,
@@ -19,7 +19,7 @@ import { join } from "node:path";
 
 export interface FlarecraftConfig {
   cloudflare?: { apiToken?: string; accountId?: string };
-  anthropic?: { apiKey?: string };
+  openrouter?: { apiKey?: string; model?: string };
   scanRoots?: string[];
 }
 
@@ -40,7 +40,7 @@ export async function loadConfig(): Promise<FlarecraftConfig> {
 export interface ConfigStatus {
   configPath: string;
   hasCloudflareToken: boolean;
-  hasAnthropicKey: boolean;
+  hasOpenRouterKey: boolean;
   accountId?: string;
   scanRoots: string[];
 }
@@ -49,7 +49,7 @@ export function describeConfig(config: FlarecraftConfig): ConfigStatus {
   return {
     configPath: CONFIG_PATH,
     hasCloudflareToken: Boolean(config.cloudflare?.apiToken),
-    hasAnthropicKey: Boolean(config.anthropic?.apiKey),
+    hasOpenRouterKey: Boolean(config.openrouter?.apiKey),
     ...(config.cloudflare?.accountId ? { accountId: config.cloudflare.accountId } : {}),
     scanRoots: config.scanRoots ?? [],
   };

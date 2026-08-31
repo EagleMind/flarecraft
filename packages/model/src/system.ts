@@ -9,6 +9,13 @@ export const SystemModelSchema = z.object({
   accountId: z.string().optional(),
   nodes: z.array(NodeSchema).default([]),
   edges: z.array(EdgeSchema).default([]),
+  /**
+   * Named groups over the nodes. Optional so every existing construction site
+   * keeps working untouched — read it as `system.groups ?? []`.
+   */
+  groups: z
+    .array(z.object({ id: z.string(), name: z.string() }))
+    .optional(),
   scannedAt: z.string().optional(),
   meta: z.record(z.string(), z.unknown()).default({}),
 });

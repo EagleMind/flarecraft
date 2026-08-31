@@ -153,6 +153,15 @@ export const NodeSchema = z.object({
   raw: z.record(z.string(), z.unknown()).optional(),
 
   /**
+   * The group this element belongs to, when the canvas has organised it.
+   *
+   * Local metadata only: Cloudflare has no concept of a group, so this never
+   * round-trips to the account. It exists so a scattered account can be sorted
+   * into systems before those systems are pulled into folders.
+   */
+  groupId: z.string().optional(),
+
+  /**
    * Resource-level settings edited on the canvas — a route's pattern, a cron
    * expression. Kept apart from `raw` so an edit is distinguishable from what
    * was parsed, and so a re-scan cannot silently revert it.

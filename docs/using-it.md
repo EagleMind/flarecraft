@@ -26,7 +26,7 @@ existing folder or start something new — **opening needs no credentials at all
 ```json
 {
   "cloudflare": { "apiToken": "...", "accountId": "..." },
-  "anthropic": { "apiKey": "..." },
+  "openrouter": { "apiKey": "...", "model": "openai/gpt-4o" },
   "scanRoots": ["C:/Users/you/Documents"]
 }
 ```
@@ -35,9 +35,10 @@ existing folder or start something new — **opening needs no credentials at all
   Queues, and Zone read. Needed for account scan and drift. Endpoints the token
   is not scoped for degrade to warnings rather than failing the scan, so a
   partial token still produces a useful map.
-- **Anthropic** — only for the prose-to-subgraph path. You can skip this key
-  entirely if `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or an
-  `ant auth login` profile is already set up; the SDK resolves those itself.
+- **OpenRouter** — only for the prose-to-subgraph path. You can skip this key
+  entirely if `OPENROUTER_API_KEY` is already set in the environment.
+  `model` is optional and defaults to `openai/gpt-4o`; it can also be set via
+  `OPENROUTER_MODEL`.
 
 Both are read by the local server and used there. Neither reaches the browser.
 
@@ -78,6 +79,82 @@ on what you are doing.
 requests and errors on the nodes themselves. What you can see depends on your
 Cloudflare plan and the token's scopes; when a dataset is not available it says
 so rather than showing zeros.
+
+---
+
+## Organizing a scattered account
+
+Reading a live account gives you a true picture and an unhelpful one: a flat
+spread of Workers, queues, and databases with nothing saying which belong
+together. That is the state the dashboard leaves you in, and a faithful map of
+it is still a map of sprawl.
+
+**Organize**, in the canvas toolbar beside undo and *Tidy up*, resolves it. It
+runs a suggestion pass and draws what it found straight away — groups rather
+than an empty mode to figure out.
+
+Grouping is **local metadata**. Cloudflare has no concept of a group, so it
+never round-trips to the account; it lives in the saved system and in the
+folder you consolidate to.
+
+### Adjusting the grouping
+
+Suggested groups are connected components of the graph — genuinely independent
+clusters. Singleton platform services (AI, Browser Rendering, Images) are
+**excluded as connectors**, or two unrelated Workers that both bind `env.AI`
+would collapse into one bogus group.
+
+Where the suggestion is wrong, correct it by selecting:
+
+- **Shift+drag** marquees a region; **Shift+click** extends a selection.
+  Plain left-drag still pans, so nothing you already do changes.
+- At two or more selected, a bar appears at the top of the canvas:
+  *Group into a system*, plus *Move into ▾* and *Ungroup* once the selection
+  overlaps an existing group.
+
+Each group is drawn as a translucent backdrop behind its members, with a chip at
+the top-left carrying everything you need to decide about it: the name
+(double-click to rename), the member count, folder readiness — *2/2 located* —
+and **Save as project…**.
+
+### Saving a group as a project
+
+Readiness is the gate. Every Worker in the group needs a local folder before
+this can run; a Worker deployed under a name that differs from its config's
+`name` will not match and shows as missing. Nothing is invented for it — you get
+**Locate…** and a folder picker, because a stub that looks like a project but
+does not deploy is worse than a blocker.
+
+Once every Worker is located, *Save as project…* asks where to put it. You
+choose the **parent**; a new folder named after the group is created inside it.
+Then the preview: which folders get copied, from where, how many files, how
+large, and which package manager each one uses.
+
+**Your originals are copied, never moved.** They are still exactly where they
+were when this finishes — deleting them is your call, once you are satisfied the
+copy is right. Because nothing is ever deleted, a partial failure leaves the
+sources intact by construction.
+
+Not copied: `node_modules`, build output (`dist`, `build`, `.next`,
+`.open-next`, `.vercel`), `.wrangler`, `coverage`, and `.git`. The last is
+deliberate — the originals keep the history, and nested repositories inside one
+project folder behave confusingly. `git init` at the new root if you want it
+versioned as one project.
+
+Leave **Install dependencies afterwards** checked and each folder gets an
+install using the manager detected from its own lockfile. It runs last and is
+non-fatal: the files are already on disk, so a failed install is reported rather
+than rolled back, and you can run it yourself.
+
+The result is a folder of **self-contained projects, not a workspace** — each
+with its own lockfile and its own install. That is forced by reality rather than
+preference: projects that already carry a `pnpm-workspace.yaml` break when
+nested, and a real corpus mixes managers freely. The root adds only
+`BLUEPRINT.md` and a `README.md` recording what was copied, what was left
+behind, and where the originals still are.
+
+**Open it as a project** then reopens the new folder bound — syncable and
+deployable, exactly as if you had started it there.
 
 ---
 
@@ -222,14 +299,19 @@ able to change it by accident.
 ## Verification scripts
 
 ```bash
-pnpm test          # 155 unit tests
+pnpm test          # 180 unit tests
 pnpm typecheck     # all four TypeScript projects
 pnpm verify:emit   # emit a repo, run `wrangler deploy --dry-run` on each Worker
 pnpm verify:mcp    # drive the MCP server over a real stdio transport
+pnpm verify:organize <scanRoot> <destination>   # consolidate a real group
 ```
 
 `verify:emit` is the one that matters most. Round-trip tests prove the model
 survives; only wrangler proves it would deploy.
+
+`verify:organize` fingerprints every source folder before and after the copy and
+fails on any difference. The copy succeeding is not the property worth
+protecting — the sources coming out untouched is.
 
 ---
 
